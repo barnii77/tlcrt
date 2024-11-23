@@ -1,0 +1,31 @@
+cmake_minimum_required(VERSION 3.14)
+
+set(CMAKE_C_COMPILER "clang")
+set(CMAKE_CXX_COMPILER "clang++")
+
+project(
+    tlc
+    VERSION 0.1.0
+    DESCRIPTION "the tlc (typeless caml) programming language"
+    HOMEPAGE_URL "https://github.com/barnii77/tlc"
+    LANGUAGES CXX
+)
+
+include_directories(BEFORE include)
+
+add_library(
+    tlcrt
+    lib/rt.cpp
+    lib/value.cpp
+)
+target_compile_definitions(tlcrt PRIVATE $<$<CONFIG:Release>:_RELEASE_BUILD>)
+target_compile_features(tlcrt PRIVATE cxx_std_17)
+
+add_executable(tlc_exe src/main.cpp)
+target_compile_features(tlc_exe PRIVATE cxx_std_17)
+target_link_libraries(tlc_exe PRIVATE tlcrt)
+set_property(TARGET tlc_exe PROPERTY OUTPUT_NAME tlc)
+
+add_executable(tlc_tests src/test.cpp)
+target_compile_features(tlc_tests PRIVATE cxx_std_17)
+target_link_libraries(tlc_tests PRIVATE tlcrt)
