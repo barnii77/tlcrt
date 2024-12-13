@@ -70,12 +70,14 @@ class Context {
     std::unordered_set<i64> m_magc_visited_mem_handles;
     std::unordered_set<i64> m_magc_new_mem_handles;
     std::unordered_set<i64> m_magc_next_mem_handles;
-    i8 m_magc_state{0};
-    i64 m_magc_last_handle{0};
-    i64 m_magc_last_handle_entry{0};
     std::vector<i64> m_magc_tmp_garbage_allocs;
     std::vector<i64> m_migc_tmp_garbage_allocs;
     std::vector<i64> m_release_tmp_valid_garbage_allocs;
+
+    // state tracking for majorGC work limit feature
+    i64 m_magc_last_handle{0};
+    i64 m_magc_last_handle_entry{0};
+    i8 m_magc_state{0};
     
     void incref(const Value& data);
     void decref(const Value& data);
