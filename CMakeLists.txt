@@ -6,7 +6,7 @@ set(CMAKE_CXX_COMPILER "clang++")
 project(
     tlc
     VERSION 0.1.0
-    DESCRIPTION "the tlc (typeless caml) programming language"
+    DESCRIPTION "the tlc (typeless caml) programming language runtime"
     HOMEPAGE_URL "https://github.com/barnii77/tlc"
     LANGUAGES CXX
 )

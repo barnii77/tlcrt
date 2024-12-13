@@ -52,7 +52,7 @@ struct MemoryHandle {
     i64 alloc_id;
     i32 ref_count;
     // List of all flags:
-    // -) flags & 1 -> marked reachable by major GC
+    // -> flags & 1 -> marked reachable by major GC
     i32 flags{0};
 
     MemoryHandle(std::vector<Value> data, i64 alloc_id, i32 ref_count);
@@ -70,7 +70,12 @@ class Context {
     std::unordered_set<i64> m_magc_visited_mem_handles;
     std::unordered_set<i64> m_magc_new_mem_handles;
     std::unordered_set<i64> m_magc_next_mem_handles;
-    std::vector<i64> m_tmp_garbage_allocs;
+    i8 m_magc_state{0};
+    i64 m_magc_last_handle{0};
+    i64 m_magc_last_handle_entry{0};
+    std::vector<i64> m_magc_tmp_garbage_allocs;
+    std::vector<i64> m_migc_tmp_garbage_allocs;
+    std::vector<i64> m_release_tmp_valid_garbage_allocs;
     
     void incref(const Value& data);
     void decref(const Value& data);
@@ -96,7 +101,7 @@ public:
     Value read(Value array, i64 index);
 
     void minorGC();
-    void majorGC();
+    void majorGC(i64 max_steps = -1);
 };
 } // namespace rt
 } // namespace tlc

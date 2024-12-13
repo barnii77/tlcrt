@@ -104,10 +104,11 @@ int main() {
         try {
             Value invalidHandle(999, ValueType::memory_handle);
             ctx.read(invalidHandle, 0);
-            throw std::runtime_error("Invalid memory access did not throw");
         } catch (const std::runtime_error&) {
             // Expected
+            return;
         }
+        throw std::runtime_error("Invalid memory access did not throw");
     });
 
     runTest("Nested MemoryHandle with Multiple References", [&]() {
@@ -137,6 +138,29 @@ int main() {
         ctx.minorGC(); // Both handles should now be cleaned up
     });
 
+    runTest("Combined Arithmetic and Memory Operations", [&]() {
+        // Allocate a memory handle and perform arithmetic operations on its content
+        Value handle = ctx.alloc(3);
+        ctx.write(handle, 0, Value(10, ValueType::integer));
+        ctx.write(handle, 1, Value(20, ValueType::integer));
+        ctx.write(handle, 2, Value(30, ValueType::integer));
+
+        // Read and calculate sum
+        Value val1 = ctx.read(handle, 0);
+        Value val2 = ctx.read(handle, 1);
+        Value val3 = ctx.read(handle, 2);
+        Value sum = val1 + val2 + val3;
+
+        if (sum.data != 60) {
+            throw std::runtime_error("Arithmetic operations on memory handle contents failed");
+        }
+
+        // Clean up
+        ctx.assign(1, handle);
+        ctx.erase(1);
+        ctx.minorGC();
+    });
+
     runTest("Chain of Assignments and MemoryHandle GC", [&]() {
         Value handle = ctx.alloc(1);
 
@@ -162,13 +186,148 @@ int main() {
         // Accessing the handle now should throw
         try {
             ctx.read(handle, 0);
-            throw std::runtime_error("Expected exception for GC'ed handle");
         } catch (const std::runtime_error&) {
             // Expected behavior
+            return;
         }
+        throw std::runtime_error("Expected exception for GC'ed handle");
     });
 
-    runTest("Garbage Collection with Cyclic References", [&]() {
+    for (int n_magc_runs : {1, 2, 3})
+        runTest(std::string("Variable Reassignment and Memory Reuse - {'n_magc_runs': ")
+                + std::to_string(n_magc_runs)
+                + "}",
+                [&]() {
+            // Assign one memory handle to two variables
+            Value handle1 = ctx.alloc(5);
+            ctx.assign(1, handle1);
+            ctx.assign(2, handle1);
+
+            // Erase one variable
+            ctx.erase(1);
+
+            // Reassign the remaining variable to a new handle
+            Value handle2 = ctx.alloc(10);
+            ctx.assign(2, handle2);
+
+            // Ensure the first handle is not prematurely GC'ed
+            try {
+                ctx.read(handle1, 0);
+            } catch (const std::runtime_error&) {
+                throw std::runtime_error("Handle was GC'ed despite existing reference");
+            }
+
+            // Erase the second variable and trigger GC
+            ctx.erase(2);
+            while (n_magc_runs--)
+                ctx.minorGC();
+
+            // Now the first handle should be cleaned
+            try {
+                ctx.read(handle1, 0);
+            } catch (const std::runtime_error&) {
+                // Expected behavior
+                return;
+            }
+            throw std::runtime_error("Handle was not GC'ed after all references were erased");
+        });
+
+    for (bool make_complex_structure : {false, true})
+    for (int gc_cleanup_size : {-1, 10})
+    for (int n_magc_runs : {1, 2, 3}) {
+        runTest(std::string("Garbage Collection with Cyclic References - {'gc_cleanup_size': ")
+                + std::to_string(gc_cleanup_size)
+                + ", 'n_magc_runs': "
+                + std::to_string(n_magc_runs)
+                + ", 'make_complex_structure': "
+                + std::to_string(make_complex_structure)
+                + "}",
+                [&]() {
+            Value handleA;
+            Value handleB;
+            Value handleC;
+            Value handleE;
+            if (make_complex_structure) {
+                handleA = ctx.alloc(2);
+                handleB = ctx.alloc(2);
+                handleC = ctx.alloc(1);
+                Value handleD = ctx.alloc(1);
+                handleE = ctx.alloc(1);
+                ctx.write(handleA, 1, handleC);
+                ctx.write(handleC, 0, handleD);
+                ctx.write(handleD, 0, handleE);
+                ctx.write(handleE, 0, handleB);
+                ctx.write(handleB, 1, handleE);
+            } else {
+                handleA = ctx.alloc(1);
+                handleB = ctx.alloc(1);
+            }
+
+            // Create cyclic references
+            ctx.write(handleA, 0, handleB);
+            ctx.write(handleB, 0, handleA);
+
+            // Assign handles to variables
+            ctx.assign(1, handleA);
+            ctx.assign(2, handleB);
+
+            // Perform GC while the values are still reachable
+            int n_magc_runs_tmp = n_magc_runs;
+            while (n_magc_runs_tmp--)
+                ctx.minorGC();
+            n_magc_runs_tmp = n_magc_runs;
+            while (n_magc_runs_tmp--)
+                ctx.majorGC(gc_cleanup_size);
+            Value checkA = ctx.read(handleA, 0);
+            Value checkB = ctx.read(handleB, 0);
+            if (checkA.data != handleB.data || checkB.data != handleA.data) {
+                throw std::runtime_error("Cyclic references were incorrectly cleaned while still reachable");
+            }
+            if (make_complex_structure) {
+                checkA = ctx.read(handleA, 1);
+                checkB = ctx.read(handleB, 1);
+                if (checkA.data != handleC.data || checkB.data != handleE.data) {
+                    throw std::runtime_error("Complex structure was incorrectly cleaned while still reachable");
+                }
+            }
+
+            // Erase all variables, leaving the cycle
+            ctx.erase(1);
+            ctx.erase(2);
+
+            // Perform a minor GC (cycle should still exist)
+            ctx.minorGC();
+
+            // Verify handles are still valid
+            checkA = ctx.read(handleA, 0);
+            checkB = ctx.read(handleB, 0);
+            if (checkA.data != handleB.data || checkB.data != handleA.data) {
+                throw std::runtime_error("Cyclic references were incorrectly cleaned by minor GC");
+            }
+            if (make_complex_structure) {
+                checkA = ctx.read(handleA, 1);
+                checkB = ctx.read(handleB, 1);
+                if (checkA.data != handleC.data || checkB.data != handleE.data) {
+                    throw std::runtime_error("Complex structure was incorrectly cleaned while still reachable");
+                }
+            }
+
+            // Perform a major GC to clean the cycle
+            while (n_magc_runs--)
+                ctx.majorGC(gc_cleanup_size);
+            try {
+                ctx.read(handleA, 0);
+            } catch (const std::runtime_error& e) {
+                // Expected behavior
+                return;
+            }
+            throw std::runtime_error("Cyclic references were not cleaned by major GC");
+        });
+    }
+
+    runTest("Insufficient Iteration Garbage Collection with Cyclic References", [&]() {
+        int gc_cleanup_size = 1;
+
         Value handleA = ctx.alloc(1);
         Value handleB = ctx.alloc(1);
 
@@ -180,6 +339,15 @@ int main() {
         ctx.assign(1, handleA);
         ctx.assign(2, handleB);
 
+        // Perform GC while the values are still reachable
+        ctx.minorGC();
+        ctx.majorGC(gc_cleanup_size);
+        Value checkA = ctx.read(handleA, 0);
+        Value checkB = ctx.read(handleB, 0);
+        if (checkA.data != handleB.data || checkB.data != handleA.data) {
+            throw std::runtime_error("Cyclic references were incorrectly cleaned while still reachable");
+        }
+
         // Erase all variables, leaving the cycle
         ctx.erase(1);
         ctx.erase(2);
@@ -188,77 +356,109 @@ int main() {
         ctx.minorGC();
 
         // Verify handles are still valid
-        Value checkA = ctx.read(handleA, 0);
-        Value checkB = ctx.read(handleB, 0);
+        checkA = ctx.read(handleA, 0);
+        checkB = ctx.read(handleB, 0);
         if (checkA.data != handleB.data || checkB.data != handleA.data) {
             throw std::runtime_error("Cyclic references were incorrectly cleaned by minor GC");
         }
 
-        // Perform a major GC to clean the cycle
-        ctx.majorGC();
+        // Perform a major GC with insufficient iteration limit to make sure it doesn't exceed it's limit and fails to clean up
+        ctx.majorGC(gc_cleanup_size);
         try {
             ctx.read(handleA, 0);
+        } catch (const std::runtime_error& e) {
+            throw std::runtime_error("Cyclic references were cleaned by major GC but should not have been");
+        }
+        // Expected behavior (now clean up for real)
+        ctx.majorGC();
+    });
+
+    for (bool make_complex_structure : {false, true})
+        runTest(std::string("Multi-Iteration Garbage Collection with Intermediate Work - {'make_complex_structure': ")
+                + std::to_string(make_complex_structure)
+                + "}",
+                [&]() {
+            int n_magc_runs = 5;
+            int gc_cleanup_size = 2;
+
+            Value handleA;
+            Value handleB;
+            Value handleC;
+            Value handleE;
+            if (make_complex_structure) {
+                handleA = ctx.alloc(2);
+                handleB = ctx.alloc(2);
+            } else {
+                handleA = ctx.alloc(1);
+                handleB = ctx.alloc(1);
+            }
+
+            // Create cyclic references
+            ctx.write(handleA, 0, handleB);
+            ctx.write(handleB, 0, handleA);
+
+            // Assign handles to variables
+            ctx.assign(1, handleA);
+            ctx.assign(2, handleB);
+
+            // Perform GC while the values are still reachable
+            ctx.minorGC();
+            int n_magc_runs_tmp = n_magc_runs;
+            while (n_magc_runs_tmp--)
+                ctx.majorGC(gc_cleanup_size);
+            Value checkA = ctx.read(handleA, 0);
+            Value checkB = ctx.read(handleB, 0);
+            if (checkA.data != handleB.data || checkB.data != handleA.data) {
+                throw std::runtime_error("Cyclic references were incorrectly cleaned while still reachable");
+            }
+            if (make_complex_structure) {
+                handleC = ctx.alloc(1);
+                Value handleD = ctx.alloc(1);
+                handleE = ctx.alloc(1);
+                ctx.write(handleA, 1, handleC);
+                ctx.write(handleC, 0, handleD);
+                ctx.write(handleD, 0, handleE);
+                ctx.write(handleE, 0, handleB);
+                ctx.write(handleB, 1, handleE);
+
+                checkA = ctx.read(handleA, 1);
+                checkB = ctx.read(handleB, 1);
+                if (checkA.data != handleC.data || checkB.data != handleE.data) {
+                    throw std::runtime_error("Complex structure was incorrectly cleaned while still reachable");
+                }
+            }
+
+            // Erase all variables, leaving the cycle
+            ctx.erase(1);
+            ctx.erase(2);
+
+            // Perform a minor GC (cycle should still exist)
+            ctx.minorGC();
+
+            // Verify handles are still valid
+            checkA = ctx.read(handleA, 0);
+            checkB = ctx.read(handleB, 0);
+            if (checkA.data != handleB.data || checkB.data != handleA.data) {
+                throw std::runtime_error("Cyclic references were incorrectly cleaned by minor GC");
+            }
+            if (make_complex_structure) {
+                checkA = ctx.read(handleA, 1);
+                checkB = ctx.read(handleB, 1);
+                if (checkA.data != handleC.data || checkB.data != handleE.data) {
+                    throw std::runtime_error("Complex structure was incorrectly cleaned while still reachable");
+                }
+            }
+
+            while (n_magc_runs--)
+                ctx.majorGC(gc_cleanup_size);
+            try {
+                ctx.read(handleA, 0);
+            } catch (const std::runtime_error& e) {
+                // Expected behavior
+                return;
+            }
             throw std::runtime_error("Cyclic references were not cleaned by major GC");
-        } catch (const std::runtime_error&) {
-            // Expected behavior
-        }
-    });
-
-    runTest("Combined Arithmetic and Memory Operations", [&]() {
-        // Allocate a memory handle and perform arithmetic operations on its content
-        Value handle = ctx.alloc(3);
-        ctx.write(handle, 0, Value(10, ValueType::integer));
-        ctx.write(handle, 1, Value(20, ValueType::integer));
-        ctx.write(handle, 2, Value(30, ValueType::integer));
-
-        // Read and calculate sum
-        Value val1 = ctx.read(handle, 0);
-        Value val2 = ctx.read(handle, 1);
-        Value val3 = ctx.read(handle, 2);
-        Value sum = val1 + val2 + val3;
-
-        if (sum.data != 60) {
-            throw std::runtime_error("Arithmetic operations on memory handle contents failed");
-        }
-
-        // Clean up
-        ctx.assign(1, handle);
-        ctx.erase(1);
-        ctx.minorGC();
-    });
-
-    runTest("Variable Reassignment and Memory Reuse", [&]() {
-        // Assign one memory handle to two variables
-        Value handle1 = ctx.alloc(5);
-        ctx.assign(1, handle1);
-        ctx.assign(2, handle1);
-
-        // Erase one variable
-        ctx.erase(1);
-
-        // Reassign the remaining variable to a new handle
-        Value handle2 = ctx.alloc(10);
-        ctx.assign(2, handle2);
-
-        // Ensure the first handle is not prematurely GC'ed
-        try {
-            ctx.read(handle1, 0);
-        } catch (const std::runtime_error&) {
-            throw std::runtime_error("Handle was GC'ed despite existing reference");
-        }
-
-        // Erase the second variable and trigger GC
-        ctx.erase(2);
-        ctx.minorGC();
-
-        // Now the first handle should be cleaned
-        try {
-            ctx.read(handle1, 0);
-            throw std::runtime_error("Handle was not GC'ed after all references were erased");
-        } catch (const std::runtime_error&) {
-            // Expected behavior
-        }
-    });
+        });
 
     std::cout << (all_tests_passed ? "All tests passed!" : "Some tests failed!") << "\n";
     return 0;
