@@ -6,3 +6,6 @@ Typeless Caml... It only has integers and arrays. All interesting type construct
 
 # Building
 See [BUILD.md](BUILD.md)
+
+# Testing
+See [TEST.md](TEST.md)
