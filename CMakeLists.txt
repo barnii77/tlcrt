@@ -28,11 +28,6 @@ add_library(
 target_compile_definitions(tlcrt PRIVATE $<$<CONFIG:Release>:_RELEASE_BUILD>)
 target_compile_features(tlcrt PRIVATE cxx_std_17)
 
-add_executable(tlc_exe src/main.cpp)
-target_compile_features(tlc_exe PRIVATE cxx_std_17)
-target_link_libraries(tlc_exe PRIVATE tlcrt)
-set_property(TARGET tlc_exe PROPERTY OUTPUT_NAME tlc)
-
 add_executable(tlc_tests src/test.cpp)
 target_compile_features(tlc_tests PRIVATE cxx_std_17)
 target_link_libraries(tlc_tests PRIVATE tlcrt)
