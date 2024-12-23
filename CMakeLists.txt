@@ -11,6 +11,13 @@ project(
     LANGUAGES CXX
 )
 
+option(NO_MINOR_GC "Makes the runtime compile without minorGC such that minorGC invokations will return immediately, eliminating reference counting overhead. Recommended if minorGC is unused." OFF)
+
+if(NO_MINOR_GC)
+    message("Disabling minorGC")
+    add_compile_definitions(NO_MINOR_GC)
+endif()
+
 include_directories(BEFORE include)
 
 add_library(

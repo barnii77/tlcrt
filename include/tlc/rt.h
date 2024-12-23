@@ -3,7 +3,6 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
-#include "ast.h"
 
 namespace tlc {
 namespace rt {
@@ -62,7 +61,7 @@ struct MemoryHandle {
 class Context {
     i64 m_alloc_counter{1};
     std::unordered_map<VarT, Value> m_data;
-    std::unordered_map<FunT, FunctionExecutable> m_functions;
+    std::unordered_map<FunT, void*> m_functions;
     std::unordered_map<i64, MemoryHandle> m_mem_handles;
     std::vector<i64> m_gc_candidates;
 
@@ -79,9 +78,9 @@ class Context {
     i64 m_magc_last_handle_entry{0};
     i8 m_magc_state{0};
     
-    void incref(const Value& data);
-    void decref(const Value& data);
-    void assertValidMemHandle(const Value& data);
+    inline void incref(const Value& data);
+    inline void decref(const Value& data);
+    inline void assertValidMemHandle(const Value& data);
     void decoupleMemHandle(const MemoryHandle& mh);
     void destroyMemHandle(const MemoryHandle& mh);
     void releaseGarbage(const std::vector<i64>& garbage_allocs);
@@ -89,7 +88,7 @@ class Context {
 public:
     Context() = default;
 
-    void defineFunction(FunT id, FunctionExecutable fun);
+    void defineFunction(FunT id, void *fun);
     void eraseFunction(FunT id);
     void assign(VarT id, Value value);
     void erase(VarT id);

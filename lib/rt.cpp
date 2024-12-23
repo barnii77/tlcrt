@@ -42,8 +42,10 @@ Value Context::alloc(i64 size) {
 void Context::push(Value array, Value value) {
     assertValidMemHandle(array);
     MemoryHandle& mh = m_mem_handles.at(array.data);
+#ifndef NO_MINOR_GC
     if (value.type == ValueType::memory_handle)
         incref(value);
+#endif
     mh.data.emplace_back(value);
 }
 
@@ -53,8 +55,10 @@ Value Context::pop(Value array) {
     if (mh.data.size() == 0)
         throw std::runtime_error("cannot pop from empty array");
     Value value = mh.data.back();
+#ifndef NO_MINOR_GC
     if (value.type == ValueType::memory_handle)
         decref(value);
+#endif
     mh.data.pop_back();
     return value;
 }
@@ -64,11 +68,13 @@ void Context::write(Value array, i64 index, Value value) {
     MemoryHandle& mh = m_mem_handles.at(array.data);
     if (index < 0 || index >= mh.data.size())
         throw std::runtime_error("invalid index for data chunk of size " + std::to_string(mh.data.size()));
+#ifndef NO_MINOR_GC
     Value& current = mh.data[index];
     if (current.type == ValueType::memory_handle)
         decref(current);
     if (value.type == ValueType::memory_handle)
         incref(value);
+#endif
     mh.data[index] = value;
 }
 
@@ -80,7 +86,7 @@ Value Context::read(Value array, i64 index) {
     return mh.data[index];
 }
 
-void Context::defineFunction(FunT id, FunctionExecutable fun) {
+void Context::defineFunction(FunT id, void *fun) {
     m_functions[id] = fun;
 }
 
@@ -91,20 +97,24 @@ void Context::eraseFunction(FunT id) {
 }
 
 void Context::assign(VarT id, Value value) {
+#ifndef NO_MINOR_GC
     Value& current = m_data[id];
     if (current.type == ValueType::memory_handle)
         decref(current);
     if (value.type == ValueType::memory_handle)
         incref(value);
+#endif
     m_data[id] = value;
 }
 
 void Context::erase(VarT id) {
     if (!varIsDefined(id))
         throw std::runtime_error("tried to erase undefined variable");
+#ifndef NO_MINOR_GC
     const Value& value = m_data[id];
     if (value.type == ValueType::memory_handle)
         decref(value);
+#endif
     m_data.erase(id);
 }
 
@@ -118,9 +128,11 @@ bool Context::funIsDefined(FunT id) {
 
 /// decref all live peers
 void Context::decoupleMemHandle(const MemoryHandle& mh) {
+#ifndef NO_MINOR_GC
     for (const Value& v : mh.data)
         if (v.type == ValueType::memory_handle && m_mem_handles.find(v.data) != m_mem_handles.end())
             decref(v);
+#endif
 }
 
 /// free memory
@@ -146,6 +158,7 @@ void Context::releaseGarbage(const std::vector<i64>& garbage_allocs) {
 
 /// ref counting without cycle detection (thus major GC is needed)
 void Context::minorGC() {
+#ifndef NO_MINOR_GC
     m_migc_tmp_garbage_allocs.clear();
 
     for (i64 p : m_gc_candidates) {
@@ -158,6 +171,7 @@ void Context::minorGC() {
     releaseGarbage(m_migc_tmp_garbage_allocs);
 
     m_gc_candidates.clear();
+#endif
 }
 
 /// global mark and sweep
