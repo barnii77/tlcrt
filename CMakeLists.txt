@@ -4,7 +4,7 @@ set(CMAKE_C_COMPILER "clang")
 set(CMAKE_CXX_COMPILER "clang++")
 
 project(
-    tlc
+    tlc_runtime
     VERSION 0.1.0
     DESCRIPTION "the tlc (typeless caml) programming language runtime"
     HOMEPAGE_URL "https://github.com/barnii77/tlc"
